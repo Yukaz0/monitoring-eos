@@ -11,9 +11,13 @@ services:
     restart: unless-stopped
     env_file: .env
     # Map domain portal ke Prometheus host (satu server LAN, lihat
-    # /etc/hosts operator). Hapus bila deploy di luar jaringan internal.
+    # /etc/hosts operator). Di server SCADATR sendiri (192.168.3.204) baris ini
+    # tetap benar karena portal dan Prometheus memang ada di mesin itu.
+    # host.docker.internal dipakai sebagai jalur bersih container -> host
+    # (tanpa hairpin ke IP LAN) untuk Prometheus.
     extra_hosts:
       - "scadatr.grita.id:192.168.3.204"
+      - "host.docker.internal:host-gateway"
     ports:
       - "5118:5118"
     volumes:
@@ -25,8 +29,9 @@ services:
       retries: 3
 
   # WhatsApp gateway (Baileys). Sesi tersimpan di volume baileys-session.
-  # Tidak dipublikasikan ke jaringan luar; API mengakses via jaringan
-  # internal compose. Port host 3101 hanya untuk scan QR awal dan health.
+  # API mengaksesnya lewat jaringan internal compose (http://whatsapp-service:3101);
+  # port host hanya untuk scan QR awal dan health, jadi dibatasi ke localhost.
+  # QR juga bisa diambil lewat GET /api/qr pada API (butuh X-API-Key).
   whatsapp-service:
     build:
       context: ./apps/whatsapp-service
@@ -38,7 +43,7 @@ services:
       WA_API_KEY: ${WA_API_KEY}
       WA_AUTH_DIR: /data/baileys-session
     ports:
-      - "3101:3101"
+      - "127.0.0.1:3101:3101"
     volumes:
       - baileys-session:/data/baileys-session
     healthcheck:

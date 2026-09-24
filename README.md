@@ -22,14 +22,14 @@ ada di `docs/arsitektur.md` (source of truth).
 | `scripts/extract_token.py` | Python | Ekstrak token portal dari LevelDB profil Chromium operator |
 | `scripts/push_token.py` | Python | Kirim token itu ke API (`PUT /api/session/token`) |
 
-## Penjadwalan laporan harian (07:40 dan 16:50 WIB)
+## Penjadwalan laporan harian (07:40 dan 16:00 WIB)
 
 Sweep portal dijalankan **di dalam container tanpa browser**: `internal/portalclient`
 memakai REST + socket.io portal (engine.io HTTP polling) dengan token JWT sebagai
 header `Authorization: Bearer`. Chromium/headful tidak dipakai lagi.
 
 ```text
-scheduler cron container (07:40 & 16:50 WIB - pemicu; laporan sampai ~10 menit kemudian)
+scheduler cron container (07:40 & 16:00 WIB - pemicu; laporan sampai ~10 menit kemudian)
   -> siklus: metrik Prometheus + pembacaan portal headless
   -> laporan dirender (format resmi) dan disimpan ke report_history
   -> dikirim ke semua recipient aktif via whatsapp-service (stagger 2 detik)
@@ -44,11 +44,18 @@ Env yang relevan di `.env`:
 - `PORTAL_LOG_MIN_WINDOW_SECONDS=60` - jendela minimum; berhenti lebih awal begitu
   semua RTU yang broker-nya Connected sudah mengirim minimal satu event.
 - `PORTAL_HOST`, `PORTAL_MQTT_PORT=14013`, `PORTAL_SYSTEM_PORT=14000`.
+- `PORTAL_LOGIN_ENABLED=1` dengan `PORTAL_USERNAME`, `PORTAL_PASSWORD`, dan
+  `PORTAL_TOTP_SECRET` - siklus login sendiri ke portal (password + kode TOTP
+  yang dihitung lokal, RFC 6238) bila token tersimpan ditolak. Ini jalur utama,
+  tidak butuh browser dan tidak butuh layanan TOTP pihak ketiga.
+- `PORTAL_LOGIN_COOLDOWN_MINUTES=360` - jeda setelah login gagal supaya akun
+  portal tidak terkunci karena percobaan berulang.
 
-Token portal hanya berlaku sekitar 8 jam. Timer user di host menyegarkannya
-sebelum jadwal laporan (20 menit sebelum pemicu), dan
-`scada-token-watch.service` mendorong token baru begitu operator login
-(lihat "Alur pembaruan token portal"):
+Token portal hanya berlaku sekitar 8 jam dan diperbarui otomatis oleh siklus
+(login mandiri dengan TOTP). Timer user di host (`scada-token-refresh.timer`)
+dan `scada-token-watch.service` adalah jalur cadangan dari masa sebelum login
+otomatis tersedia (lihat "Alur pembaruan token portal"); pada deployment di
+server keduanya tidak dipakai.
 
 ```sh
 systemctl --user enable --now scada-token-refresh.timer   # 07:20 & 16:30 WIB
@@ -76,7 +83,12 @@ cp .env.example .env   # isi API_KEY, WA_API_KEY, dst.
 docker compose up -d --build
 ```
 
-Port host: API 5118, whatsapp-service 3101, frontend 5117.
+Port host: API 5118, whatsapp-service 3101 (hanya localhost), frontend 5117.
+
+Deploy di server SCADATR (`192.168.3.204`, tempat portal dan Prometheus
+berjalan) dijelaskan terpisah di `docs/deploy-server-scadatr.md`: ada dua
+variabel `.env` yang berbeda dan langkah verifikasi jalur container ke
+portal/Prometheus.
 
 ## API
 
@@ -106,6 +118,12 @@ Endpoint mutasi (POST/PUT/DELETE, `POST /api/report/run`,
 
 ## Alur pembaruan token portal
 
+Jalur utama: otomatis di dalam container. Bila token tersimpan ditolak portal
+(401/403), siklus login sendiri memakai `PORTAL_USERNAME`, `PORTAL_PASSWORD`,
+dan `PORTAL_TOTP_SECRET` (`PORTAL_LOGIN_ENABLED=1`), lalu menyimpan token baru
+ke SQLite. Langkah di bawah ini adalah jalur cadangan bila login otomatis
+dinonaktifkan atau akun otomasi belum siap.
+
 1. Login portal di profil Chromium operator (`~/.cache/scada-chromium-1`) -
    hanya perlu dilakukan saat sesi profil itu mati.
 2. `python3 scripts/push_token.py` - mengekstrak token dari profil lalu
@@ -114,8 +132,10 @@ Endpoint mutasi (POST/PUT/DELETE, `POST /api/report/run`,
 3. Siklus berikutnya memakai token dari SQLite. Bila portal menolak token
    (401/403), siklus menandai sesi mati, laporan disimpan tanpa bagian
    telemetri, dan pengirimannya ditahan (kecuali `SEND_WITHOUT_TELEMETRY=1`).
-4. Penyegaran otomatis: `scada-token-refresh.timer` menjalankan langkah 2 pada
-   07:20 dan 16:30 WIB - 20 menit sebelum pemicu laporan 07:40 dan 16:50.
+4. Penyegaran cadangan: `scada-token-refresh.timer` menjalankan langkah 2 pada
+   07:20 dan 16:30 WIB (dibuat untuk jadwal lama 07:40 dan 16:50). Pada
+   deployment dengan login otomatis aktif, timer ini tidak diperlukan dan
+   sebaiknya dinonaktifkan supaya tidak berebut sesi dengan akun yang sama.
 5. Pemantauan berkelanjutan: `scada-token-watch.service` menjalankan
    `scripts/token_watch.py` (periksa tiap 20 detik) dan mendorong token begitu
    nilainya lebih baru daripada yang sedang dipakai API - jadi login di langkah
