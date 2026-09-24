@@ -48,8 +48,8 @@ const (
 	defaultMinWindow = 60 * time.Second
 
 	// defaultMaxWindow adalah batas lama pengumpulan traffic default,
-	// sama dengan default PORTAL_LOG_WINDOW_SECONDS.
-	defaultMaxWindow = 600 * time.Second
+	// sama dengan default PORTAL_LOG_WINDOW_SECONDS (5 menit).
+	defaultMaxWindow = 300 * time.Second
 
 	// defaultEventTimeout membatasi lamanya menunggu event "mqtt" datang.
 	defaultEventTimeout = 30 * time.Second
@@ -152,7 +152,7 @@ func New(cfg Config) *Reader {
 		r.hc = &http.Client{Timeout: 40 * time.Second}
 	}
 	// pollHC khusus long-poll socket.io. Server boleh menahan GET sampai jendela
-	// pengumpulan berakhir (PORTAL_LOG_WINDOW_SECONDS, default 600 detik), jauh
+	// pengumpulan berakhir (PORTAL_LOG_WINDOW_SECONDS, default 300 detik), jauh
 	// lebih lama daripada batas 40 detik untuk request REST biasa. Tanpa klien
 	// terpisah, long-poll gagal "context deadline exceeded" di tengah
 	// pengumpulan sehingga siklus berhenti dan laporan keluar tanpa bagian
@@ -350,9 +350,13 @@ type CollectOptions struct {
 	MinWindow time.Duration
 	// MaxWindow adalah batas lama pengumpulan: pengumpulan berhenti begitu
 	// jendela ini tercapai walau masih ada id di Expected yang belum
-	// mengirim. Nol atau negatif memakai default 600 detik; nilai yang lebih
+	// mengirim. Nol atau negatif memakai default 300 detik; nilai yang lebih
 	// pendek daripada MinWindow dinaikkan agar sama.
 	MaxWindow time.Duration
+	// IdleTimeout adalah lama tanpa RTU baru yang mengirim sebelum pengumpulan
+	// berhenti lebih awal. Dihitung sejak RTU terakhir kali bertambah, dan baru
+	// berlaku setelah MinWindow lewat. Nol berarti tidak dipakai.
+	IdleTimeout time.Duration
 	// Expected adalah id_rtu yang ditunggu (mis. RTU dengan broker
 	// Connected). Daftar kosong berarti tidak ada target berhenti lebih
 	// awal, jadi pengumpulan menunggu sampai MaxWindow.
@@ -386,6 +390,11 @@ func (r *Reader) CollectLogs(ctx context.Context, token string, opt CollectOptio
 	start := time.Now()
 	minDeadline := start.Add(minWindow)
 	maxDeadline := start.Add(maxWindow)
+	// lastSeen menandai kapan terakhir kali jumlah RTU Expected yang sudah
+	// mengirim bertambah. Idle dihitung dari titik itu supaya RTU kronis yang
+	// tidak pernah mengirim tidak memaksa setiap siklus menunggu MaxWindow.
+	lastSeen := start
+	seenPrev := 0
 
 	stats := make(map[int]LogStat)
 	if opt.OnProgress != nil {
@@ -397,12 +406,32 @@ pollLoop:
 		if !time.Now().Before(maxDeadline) {
 			break
 		}
+		if !time.Now().Before(minDeadline) {
+			// Berhenti lebih awal hanya setelah jendela minimum lewat: semua
+			// RTU Expected sudah mengirim, atau tidak ada RTU baru selama
+			// IdleTimeout. Diperiksa di awal putaran supaya long-poll dengan
+			// deadline yang sudah lewat tidak dipanggil lagi.
+			if allSeen(stats, opt.Expected) {
+				break
+			}
+			if opt.IdleTimeout > 0 && time.Since(lastSeen) >= opt.IdleTimeout {
+				break
+			}
+		}
 		// Sebelum jendela minimum lewat, long-poll dibatasi ke jendela
 		// minimum saja supaya berhenti lebih awal tidak menunggu ping
 		// engine.io berikutnya.
 		pollUntil := maxDeadline
 		if time.Now().Before(minDeadline) {
 			pollUntil = minDeadline
+		}
+		// Long-poll juga dibatasi batas idle (ambil yang paling awal, tapi
+		// tidak lebih pendek daripada jendela minimum) supaya berhenti tepat
+		// waktu, bukan menunggu ping engine.io berikutnya.
+		if opt.IdleTimeout > 0 {
+			if idleDeadline := lastSeen.Add(opt.IdleTimeout); idleDeadline.After(minDeadline) && idleDeadline.Before(pollUntil) {
+				pollUntil = idleDeadline
+			}
 		}
 		pctx, pcancel := context.WithDeadline(ctx, pollUntil)
 		events, err := s.nextEvents(pctx)
@@ -452,12 +481,19 @@ pollLoop:
 				addLogStat(stats, rawInt(de.RTUID), rawText(de.Timestamp))
 			}
 		}
+		if seen := countSeen(stats, opt.Expected); seen > seenPrev {
+			seenPrev = seen
+			lastSeen = time.Now()
+		}
 		if opt.OnProgress != nil {
 			opt.OnProgress(countSeen(stats, opt.Expected), len(opt.Expected))
 		}
-		if !time.Now().Before(minDeadline) && allSeen(stats, opt.Expected) {
-			// Semua RTU yang ditunggu sudah mengirim: laporan bisa selesai
-			// tanpa menunggu jendela maksimum.
+		if !time.Now().Before(minDeadline) &&
+			(allSeen(stats, opt.Expected) ||
+				(opt.IdleTimeout > 0 && time.Since(lastSeen) >= opt.IdleTimeout)) {
+			// Semua RTU yang ditunggu sudah mengirim, atau tidak ada RTU baru
+			// selama IdleTimeout: laporan bisa selesai tanpa menunggu jendela
+			// maksimum.
 			break
 		}
 	}

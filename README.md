@@ -40,9 +40,14 @@ Env yang relevan di `.env`:
 - `PORTAL_MODE=socket` - jalur utama tanpa browser (`browser` = jalur chromedp lama).
 - `SKIP_PORTAL=0` - portal ikut dibaca.
 - `DISABLE_INTERNAL_SCHEDULER=0` - jadwal dijalankan cron container.
-- `PORTAL_LOG_WINDOW_SECONDS=600` - jendela maksimum pengumpulan log (10 menit).
+- `PORTAL_LOG_WINDOW_SECONDS=300` - jendela maksimum pengumpulan log (5 menit,
+  batas keras).
 - `PORTAL_LOG_MIN_WINDOW_SECONDS=60` - jendela minimum; berhenti lebih awal begitu
   semua RTU yang broker-nya Connected sudah mengirim minimal satu event.
+- `PORTAL_LOG_IDLE_SECONDS=120` - berhenti lebih awal juga bila tidak ada RTU
+  baru mengirim selama ini (dihitung sejak RTU terakhir yang bertambah). Tanpa
+  ini, RTU kronis yang tidak pernah mengirim memaksa setiap siklus menunggu
+  jendela maksimum penuh. `0` mematikan.
 - `PORTAL_HOST`, `PORTAL_MQTT_PORT=14013`, `PORTAL_SYSTEM_PORT=14000`.
 - `PORTAL_LOGIN_ENABLED=1` dengan `PORTAL_USERNAME`, `PORTAL_PASSWORD`, dan
   `PORTAL_TOTP_SECRET` - siklus login sendiri ke portal (password + kode TOTP
@@ -157,6 +162,7 @@ dinonaktifkan atau akun otomasi belum siap.
   disimpan ke riwayat tetapi **tidak dikirim**; pengiriman hanya bisa
   dilonggarkan sementara lewat `SEND_WITHOUT_TELEMETRY=1`.
 - Pembacaan portal headless terukur jauh lebih cepat daripada sweep browser
-  (fetch klien ~0,3-0,5 detik; pengumpulan log 60 detik bila semua RTU aktif,
-  sampai 10 menit bila ada RTU yang diam).
+  (fetch klien ~0,3-9 detik; pengumpulan log 60 detik bila semua RTU aktif, dan
+  berhenti lebih awal begitu tidak ada RTU baru mengirim selama
+  `PORTAL_LOG_IDLE_SECONDS`, paling lama 5 menit).
 - Diverifikasi: `go build ./...`, `go vet ./...`, `go test ./...` sukses.

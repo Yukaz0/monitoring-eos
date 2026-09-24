@@ -112,8 +112,34 @@ func TestPortalMinWindowDariEnv(t *testing.T) {
 }
 
 func TestDefaultPortalWindow(t *testing.T) {
-	if defaultPortalWindowSeconds != 600 {
-		t.Errorf("default jendela maksimum = %ds, mau 600s", defaultPortalWindowSeconds)
+	if defaultPortalWindowSeconds != 300 {
+		t.Errorf("default jendela maksimum = %ds, mau 300s", defaultPortalWindowSeconds)
+	}
+}
+
+// TestPortalIdleTimeoutDariEnv: PORTAL_LOG_IDLE_SECONDS dibaca apa adanya -
+// kosong memakai default, 0 mematikan fitur, negatif dianggap 0, dan nilai
+// rusak kembali ke default.
+func TestPortalIdleTimeoutDariEnv(t *testing.T) {
+	t.Setenv("PORTAL_LOG_IDLE_SECONDS", "")
+	if got := portalIdle(); got != defaultPortalIdleSeconds*time.Second {
+		t.Errorf("portalIdle kosong = %s, mau default %ds", got, defaultPortalIdleSeconds)
+	}
+	t.Setenv("PORTAL_LOG_IDLE_SECONDS", "90")
+	if got := portalIdle(); got != 90*time.Second {
+		t.Errorf("portalIdle 90 = %s, mau 90s", got)
+	}
+	t.Setenv("PORTAL_LOG_IDLE_SECONDS", "0")
+	if got := portalIdle(); got != 0 {
+		t.Errorf("portalIdle 0 = %s, mau 0 (fitur mati)", got)
+	}
+	t.Setenv("PORTAL_LOG_IDLE_SECONDS", "-5")
+	if got := portalIdle(); got != 0 {
+		t.Errorf("portalIdle -5 = %s, mau 0", got)
+	}
+	t.Setenv("PORTAL_LOG_IDLE_SECONDS", "bukan-angka")
+	if got := portalIdle(); got != defaultPortalIdleSeconds*time.Second {
+		t.Errorf("portalIdle nilai rusak = %s, mau default %ds", got, defaultPortalIdleSeconds)
 	}
 }
 

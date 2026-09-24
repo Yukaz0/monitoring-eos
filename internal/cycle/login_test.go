@@ -29,6 +29,9 @@ type fakeSocket struct {
 	collectErr    []error
 	clients       []portalclient.Client
 	logs          map[int]portalclient.LogStat
+	// collectOpts merekam opsi yang diterima CollectLogs supaya penerusan
+	// jendela/idle dari Cycle bisa diuji, bukan hanya dibaca helper-nya.
+	collectOpts []portalclient.CollectOptions
 }
 
 func (f *fakeSocket) FetchClients(_ context.Context, token string) ([]portalclient.Client, error) {
@@ -43,12 +46,13 @@ func (f *fakeSocket) FetchClients(_ context.Context, token string) ([]portalclie
 	return f.clients, nil
 }
 
-func (f *fakeSocket) CollectLogs(_ context.Context, token string, _ portalclient.CollectOptions) (map[int]portalclient.LogStat, error) {
+func (f *fakeSocket) CollectLogs(_ context.Context, token string, opt portalclient.CollectOptions) (map[int]portalclient.LogStat, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	i := f.collectCalls
 	f.collectCalls++
 	f.collectTokens = append(f.collectTokens, token)
+	f.collectOpts = append(f.collectOpts, opt)
 	if i < len(f.collectErr) && f.collectErr[i] != nil {
 		return nil, f.collectErr[i]
 	}
@@ -65,6 +69,13 @@ func (f *fakeSocket) tokenFetch() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.fetchTokens...)
+}
+
+// opsiCollect mengembalikan salinan opsi yang diterima CollectLogs.
+func (f *fakeSocket) opsiCollect() []portalclient.CollectOptions {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]portalclient.CollectOptions(nil), f.collectOpts...)
 }
 
 // newCycleLogin merakit Cycle mode socket dengan store in-memory dan logger
@@ -277,6 +288,50 @@ func TestSweepPakaiTokenTerbaruDariStore(t *testing.T) {
 	tokens := fake.tokenFetch()
 	if len(tokens) != 1 || tokens[0] != segar {
 		t.Errorf("FetchClients dipakai %v, mau token dari store", tokens)
+	}
+}
+
+// TestNewMeneruskanIdleTimeoutDariEnv: PORTAL_LOG_IDLE_SECONDS harus sampai ke
+// struct Cycle lewat konstruktor New, bukan hanya terbaca helper-nya.
+func TestNewMeneruskanIdleTimeoutDariEnv(t *testing.T) {
+	t.Setenv("PORTAL_LOG_IDLE_SECONDS", "90")
+	dsn := "file:" + strings.ReplaceAll(t.Name(), "/", "_") + "?mode=memory&cache=shared"
+	st, err := store.Open(dsn)
+	if err != nil {
+		t.Fatalf("buka sqlite: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	c, err := New(st, "token", "http://wa", "kunci", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if c.PortalIdle != 90*time.Second {
+		t.Errorf("PortalIdle = %s, mau 90s", c.PortalIdle)
+	}
+}
+
+// TestSweepMeneruskanIdleTimeout: opsi idle yang dipegang Cycle harus benar
+// diteruskan ke pembaca portal saat pengumpulan; tanpa itu RTU kronis yang
+// tidak pernah mengirim tetap menahan jendela maksimum penuh.
+func TestSweepMeneruskanIdleTimeout(t *testing.T) {
+	fake := &fakeSocket{clients: satuKlien()}
+	login := func(context.Context) (string, error) { return "", fmt.Errorf("tidak dipakai") }
+	c, _ := newCycleLogin(t, fake, jwtExp(t, time.Now().Add(time.Hour)), login)
+	c.PortalIdle = 77 * time.Second
+
+	if _, err := c.collectPortalSocket(context.Background()); err != nil {
+		t.Fatalf("collectPortalSocket: %v", err)
+	}
+	opts := fake.opsiCollect()
+	if len(opts) == 0 {
+		t.Fatal("CollectLogs tidak dipanggil")
+	}
+	if opts[0].IdleTimeout != 77*time.Second {
+		t.Errorf("IdleTimeout yang diterima pembaca = %s, mau 77s", opts[0].IdleTimeout)
+	}
+	if opts[0].MinWindow != c.PortalMinWindow || opts[0].MaxWindow != c.PortalWindow {
+		t.Errorf("jendela tidak diteruskan: min=%s maks=%s", opts[0].MinWindow, opts[0].MaxWindow)
 	}
 }
 

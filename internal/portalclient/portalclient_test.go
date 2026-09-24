@@ -23,7 +23,8 @@ type fakePortal struct {
 	jwt           string
 	unauthorized  bool
 	failHandshake bool
-	getResponses  []string // body GET dengan sid, berurutan; habis berarti ""
+	getResponses  []string        // body GET dengan sid, berurutan; habis berarti ""
+	getDelays     []time.Duration // jeda sebelum body GET ke-i dikirim; sejajar getResponses
 	restData      string
 	restStatus    int
 
@@ -76,6 +77,9 @@ func (f *fakePortal) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 		f.getCount++
 		if f.getCount <= len(f.getResponses) {
+			if i := f.getCount - 1; i < len(f.getDelays) && f.getDelays[i] > 0 {
+				time.Sleep(f.getDelays[i])
+			}
 			_, _ = io.WriteString(w, f.getResponses[f.getCount-1])
 		}
 	case http.MethodPost:
@@ -516,6 +520,108 @@ func TestCollectLogsTetapMenungguJendelaMaksimum(t *testing.T) {
 	}
 	if elapsed < maxWindow {
 		t.Errorf("pengumpulan berhenti di %s, harus menunggu jendela maksimum %s", elapsed, maxWindow)
+	}
+	if elapsed > maxWindow+time.Second {
+		t.Errorf("pengumpulan %s melewati jendela maksimum %s terlalu jauh", elapsed, maxWindow)
+	}
+}
+
+// TestCollectLogsBerhentiSaatIdle memastikan pengumpulan berhenti jauh sebelum
+// jendela maksimum bila tidak ada RTU baru mengirim selama IdleTimeout - kasus
+// RTU kronis diam yang dulu memaksa setiap siklus menunggu jendela maksimum
+// penuh tanpa manfaat.
+func TestCollectLogsBerhentiSaatIdle(t *testing.T) {
+	f := &fakePortal{getResponses: []string{
+		`40{"sid":"testsid"}`,
+		`42["log-mqtt",{"time":"23/09/2026 10:00:01.100","id_rtu":12012000}]`,
+	}}
+	_, r := newFake(t, f, time.Second)
+
+	const maxWindow = 30 * time.Second
+	const idle = 800 * time.Millisecond
+	start := time.Now()
+	stats, err := r.CollectLogs(context.Background(), testJWT, CollectOptions{
+		MinWindow:   200 * time.Millisecond,
+		MaxWindow:   maxWindow,
+		Expected:    []int{12012000, 12012001}, // 12012001 tidak pernah mengirim
+		IdleTimeout: idle,
+	})
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("CollectLogs: %v", err)
+	}
+	if stats[12012000].Events != 1 {
+		t.Fatalf("RTU yang mengirim harus tercatat: %+v", stats)
+	}
+	if _, ada := stats[12012001]; ada {
+		t.Errorf("RTU yang tidak mengirim tidak boleh tercatat: %+v", stats)
+	}
+	if elapsed >= 5*time.Second {
+		t.Errorf("pengumpulan %s tidak berhenti saat idle, mau jauh sebelum jendela maksimum %s", elapsed, maxWindow)
+	}
+	if elapsed < idle {
+		t.Errorf("pengumpulan %s berhenti sebelum IdleTimeout %s lewat", elapsed, idle)
+	}
+}
+
+// TestCollectLogsIdleTidakMemotongRtuLambat memastikan kedatangan RTU baru
+// mereset hitungan idle: RTU yang mengirim terlambat tetap tertangkap dan tidak
+// salah masuk "no data from broker".
+func TestCollectLogsIdleTidakMemotongRtuLambat(t *testing.T) {
+	f := &fakePortal{
+		getResponses: []string{
+			`40{"sid":"testsid"}`,
+			`42["log-mqtt",{"time":"23/09/2026 10:00:01.100","id_rtu":12012000}]`,
+			`42["datapoint-mqtt",{"id_rtu":12012001,"timestamp":"23/09/2026 10:00:02.000"}]`,
+		},
+		// RTU 2 baru mengirim ~1,2 detik kemudian, lebih lama daripada
+		// IdleTimeout, tetapi masih di dalam jendela minimum.
+		getDelays: []time.Duration{0, 0, 1200 * time.Millisecond},
+	}
+	_, r := newFake(t, f, time.Second)
+
+	stats, err := r.CollectLogs(context.Background(), testJWT, CollectOptions{
+		MinWindow:   2 * time.Second,
+		MaxWindow:   30 * time.Second,
+		Expected:    []int{12012000, 12012001},
+		IdleTimeout: 800 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("CollectLogs: %v", err)
+	}
+	if stats[12012000].Events != 1 || stats[12012001].Events != 1 {
+		t.Fatalf("kedua RTU harus tercatat walau RTU 2 datang terlambat: %+v", stats)
+	}
+}
+
+// TestCollectLogsIdleNolTidakBerubah memastikan IdleTimeout=0 mematikan fitur:
+// pengumpulan tetap menunggu sampai dekat jendela maksimum walau hanya sebagian
+// RTU Expected yang mengirim.
+func TestCollectLogsIdleNolTidakBerubah(t *testing.T) {
+	f := &fakePortal{getResponses: []string{
+		`40{"sid":"testsid"}`,
+		`42["log-mqtt",{"time":"23/09/2026 10:00:01.100","id_rtu":12012000}]`,
+	}}
+	_, r := newFake(t, f, time.Second)
+
+	const minWindow = 50 * time.Millisecond
+	const maxWindow = 400 * time.Millisecond
+	start := time.Now()
+	stats, err := r.CollectLogs(context.Background(), testJWT, CollectOptions{
+		MinWindow:   minWindow,
+		MaxWindow:   maxWindow,
+		Expected:    []int{12012000, 12012001}, // 12012001 tidak pernah mengirim
+		IdleTimeout: 0,
+	})
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("CollectLogs: %v", err)
+	}
+	if stats[12012000].Events != 1 {
+		t.Fatalf("RTU yang mengirim harus tercatat: %+v", stats)
+	}
+	if elapsed < maxWindow {
+		t.Errorf("pengumpulan %s, IdleTimeout=0 harus menunggu jendela maksimum %s", elapsed, maxWindow)
 	}
 	if elapsed > maxWindow+time.Second {
 		t.Errorf("pengumpulan %s melewati jendela maksimum %s terlalu jauh", elapsed, maxWindow)

@@ -33,13 +33,18 @@ const (
 	PortalModeSocket  = "socket"
 
 	// defaultPortalWindowSeconds sama dengan default
-	// PORTAL_LOG_WINDOW_SECONDS: jendela pengumpulan traffic maksimum.
-	defaultPortalWindowSeconds = 600
+	// PORTAL_LOG_WINDOW_SECONDS: jendela pengumpulan traffic maksimum (5 menit).
+	defaultPortalWindowSeconds = 300
 
 	// defaultPortalMinWindowSeconds sama dengan default
 	// PORTAL_LOG_MIN_WINDOW_SECONDS: jendela pengumpulan traffic minimum
 	// sebelum sweep boleh berhenti lebih awal.
 	defaultPortalMinWindowSeconds = 60
+
+	// defaultPortalIdleSeconds sama dengan default PORTAL_LOG_IDLE_SECONDS:
+	// lama tanpa RTU baru mengirim sebelum sweep berhenti lebih awal, supaya
+	// RTU kronis yang tidak pernah mengirim tidak memaksa menunggu penuh.
+	defaultPortalIdleSeconds = 120
 
 	// defaultPortalLoginCooldownMinutes sama dengan default
 	// PORTAL_LOGIN_COOLDOWN_MINUTES: lama berhenti mencoba login otomatis
@@ -126,6 +131,12 @@ type Cycle struct {
 	// berhenti lebih awal bila semua RTU Connected sudah mengirim minimal
 	// satu event traffic.
 	PortalMinWindow time.Duration
+	// PortalIdle adalah lama tanpa RTU baru yang mengirim sebelum sweep
+	// berhenti lebih awal pada mode socket (PORTAL_LOG_IDLE_SECONDS, default
+	// 120 detik). Berlaku setelah PortalMinWindow lewat; 0 mematikan fitur.
+	// Tanpa ini RTU kronis yang tidak pernah mengirim membuat setiap siklus
+	// selalu menghabiskan PortalWindow penuh tanpa manfaat.
+	PortalIdle time.Duration
 
 	// Progres pengumpulan traffic pada siklus yang sedang berjalan, dibaca
 	// HTTP handler lain lewat Progress(). Atomik karena diisi dari goroutine
@@ -337,10 +348,11 @@ func (c *Cycle) collectPortalSocket(ctx context.Context) ([]report.Station, erro
 	err = c.cobaDenganLogin(lctx, &loginDicoba, func() error {
 		var e error
 		logs, e = c.Socket.CollectLogs(lctx, c.PortalToken, portalclient.CollectOptions{
-			MinWindow:  c.PortalMinWindow,
-			MaxWindow:  c.PortalWindow,
-			Expected:   expected,
-			OnProgress: c.catatProgress,
+			MinWindow:   c.PortalMinWindow,
+			MaxWindow:   c.PortalWindow,
+			IdleTimeout: c.PortalIdle,
+			Expected:    expected,
+			OnProgress:  c.catatProgress,
 		})
 		return e
 	})
@@ -604,6 +616,7 @@ func New(st *store.Store, portalToken, waBase, waAPIKey string, log *slog.Logger
 		PortalToken:     portalToken,
 		PortalWindow:    portalWindow(),
 		PortalMinWindow: portalMinWindow(),
+		PortalIdle:      portalIdle(),
 
 		// Kredensial login REST portal; kosong berarti login otomatis mati.
 		PortalUser:       os.Getenv("PORTAL_USERNAME"),
@@ -665,6 +678,25 @@ func portalWindow() time.Duration {
 // socket.
 func portalMinWindow() time.Duration {
 	return time.Duration(envIntOr("PORTAL_LOG_MIN_WINDOW_SECONDS", defaultPortalMinWindowSeconds)) * time.Second
+}
+
+// portalIdle membaca PORTAL_LOG_IDLE_SECONDS (detik): lama tanpa RTU baru
+// mengirim sebelum sweep berhenti lebih awal pada mode socket. Nilai
+// kosong/bukan angka memakai default; 0 mematikan fitur (bukan dianggap default
+// seperti envIntOr); nilai negatif dianggap 0.
+func portalIdle() time.Duration {
+	v := strings.TrimSpace(os.Getenv("PORTAL_LOG_IDLE_SECONDS"))
+	if v == "" {
+		return defaultPortalIdleSeconds * time.Second
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return defaultPortalIdleSeconds * time.Second
+	}
+	if n < 0 {
+		n = 0
+	}
+	return time.Duration(n) * time.Second
 }
 
 // portalLoginCooldown membaca PORTAL_LOGIN_COOLDOWN_MINUTES (menit): lama
