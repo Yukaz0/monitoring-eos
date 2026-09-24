@@ -22,17 +22,19 @@ ada di `docs/arsitektur.md` (source of truth).
 | `scripts/extract_token.py` | Python | Ekstrak token portal dari LevelDB profil Chromium operator |
 | `scripts/push_token.py` | Python | Kirim token itu ke API (`PUT /api/session/token`) |
 
-## Penjadwalan laporan harian (07:40 dan 16:00 WIB)
+## Penjadwalan laporan harian (laporan siap sebelum 07:40 dan 16:00 WIB)
 
 Sweep portal dijalankan **di dalam container tanpa browser**: `internal/portalclient`
 memakai REST + socket.io portal (engine.io HTTP polling) dengan token JWT sebagai
 header `Authorization: Bearer`. Chromium/headful tidak dipakai lagi.
 
 ```text
-scheduler cron container (07:40 & 16:00 WIB - pemicu; laporan sampai ~10 menit kemudian)
-  -> siklus: metrik Prometheus + pembacaan portal headless
+scheduler cron container (07:34 & 15:54 WIB - pemicu, 6 menit sebelum jam laporan)
+  -> siklus: metrik Prometheus + pembacaan portal headless (~2,5 menit khas,
+     batas keras 5 menit)
   -> laporan dirender (format resmi) dan disimpan ke report_history
   -> dikirim ke semua recipient aktif via whatsapp-service (stagger 2 detik)
+     sehingga laporan sudah sampai sebelum 07:40 / 16:00
 ```
 
 Env yang relevan di `.env`:

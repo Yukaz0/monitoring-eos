@@ -101,12 +101,17 @@ curl -s -X POST "$API/api/recipients" \
 
 curl -s -X PUT "$API/api/schedules" \
   -H "X-API-Key: $K" -H 'Content-Type: application/json' \
-  -d '{"name":"Pagi","cron_expr":"40 7 * * *","active":true}'
+  -d '{"name":"Pagi","cron_expr":"34 7 * * *","active":true}'
 
 curl -s -X PUT "$API/api/schedules" \
   -H "X-API-Key: $K" -H 'Content-Type: application/json' \
-  -d '{"name":"Sore","cron_expr":"0 16 * * *","active":true}'
+  -d '{"name":"Sore","cron_expr":"54 15 * * *","active":true}'
 ```
+
+Cron di atas adalah **waktu pemicu**, bukan waktu kirim: siklus berjalan ~2,5
+menit (batas keras 5 menit), jadi pemicunya dimajukan 6 menit supaya laporan
+sudah sampai sebelum 07:40 dan 16:00. Kalau jadwal laporannya berbeda, geser
+pemicunya sebesar margin yang sama.
 
 Periksa hasilnya:
 
