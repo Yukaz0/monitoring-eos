@@ -1,0 +1,75 @@
+# Stack monitoring SCADATR (deploy via Portainer).
+# Lihat .env.example untuk daftar variabel yang wajib diisi.
+services:
+  # REST API + scheduler cron + siklus collector (prometheus + portal).
+  # Satu binary: siklus dijalankan hook internal, bukan container terpisah.
+  monitoring-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: monitoring-api
+    restart: unless-stopped
+    env_file: .env
+    # Map domain portal ke Prometheus host (satu server LAN, lihat
+    # /etc/hosts operator). Hapus bila deploy di luar jaringan internal.
+    extra_hosts:
+      - "scadatr.grita.id:192.168.3.204"
+    ports:
+      - "5118:5118"
+    volumes:
+      - sqlite-data:/data
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/monitoring-api", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # WhatsApp gateway (Baileys). Sesi tersimpan di volume baileys-session.
+  # Tidak dipublikasikan ke jaringan luar; API mengakses via jaringan
+  # internal compose. Port host 3101 hanya untuk scan QR awal dan health.
+  whatsapp-service:
+    build:
+      context: ./apps/whatsapp-service
+      dockerfile: Dockerfile
+    container_name: monitoring-whatsapp
+    restart: unless-stopped
+    environment:
+      WA_SERVICE_PORT: 3101
+      WA_API_KEY: ${WA_API_KEY}
+      WA_AUTH_DIR: /data/baileys-session
+    ports:
+      - "3101:3101"
+    volumes:
+      - baileys-session:/data/baileys-session
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3101/ping').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Placeholder dashboard internal (frontend sebenarnya dikerjakan terpisah).
+  frontend:
+    image: nginx:alpine
+    container_name: monitoring-frontend
+    restart: unless-stopped
+    ports:
+      - "5117:80"
+    volumes:
+      - ./web:/usr/share/nginx/html:ro
+
+  # Collector CLI opsional: satu siklus manual dari host:
+  #   docker compose run --rm collector
+  # Stack harian tidak membutuhkan service ini berjalan terus.
+  collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.collector
+    container_name: monitoring-collector
+    profiles: ["manual"]
+    env_file: .env
+    volumes:
+      - sqlite-data:/data
+
+volumes:
+  sqlite-data:
+  baileys-session:

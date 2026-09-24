@@ -1,0 +1,30 @@
+# Rahasia — JANGAN pernah di-commit. Semua kredensial ada di .env:
+# API_KEY, WA_API_KEY, kredensial portal, dan PORTAL_TOTP_SECRET.
+.env
+.env.local
+.env.*.local
+
+# Perkakas agen/editor lokal (bukan bagian produk)
+.codegraph
+.commandcode/
+.omo/
+.idea/
+.vscode/
+*.swp
+
+# Alat QA lokal: hanya untuk menguji di mesin ini, bukan perintah produk.
+# (lihat README bagian build; alatnya boleh tetap ada di mesin, tidak di repo)
+tmp_preview/
+tmp_totp_check/
+
+# Python
+__pycache__/
+*.pyc
+
+# Data runtime (SQLite volume, log, dump)
+data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+*.out

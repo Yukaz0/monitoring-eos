@@ -1,0 +1,31 @@
+# Image collector CLI (satu siklus penuh, hasil ke stdout). Pemakaian:
+#   docker compose run --rm collector
+# Menyertakan Chromium + Xvfb karena sweep portal butuh sesi headful.
+FROM golang:1.27-bookworm AS build
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY cmd ./cmd
+COPY internal ./internal
+RUN CGO_ENABLED=0 go build -o /out/monitoring-collector ./cmd/collector
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        chromium xvfb xauth ca-certificates tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /out/monitoring-collector /usr/local/bin/monitoring-collector
+COPY docker-entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+ENV CHROME_EXEC=/usr/bin/chromium
+ENV SQLITE_DSN=file:/data/monitoring.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)
+
+VOLUME ["/data"]
+
+# Mode CLI: jalankan satu siklus lalu keluar. Cron host / scheduler API
+# bisa memicunya berkala; untuk stack penuh gunakan service monitoring-api.
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["/usr/local/bin/monitoring-collector"]

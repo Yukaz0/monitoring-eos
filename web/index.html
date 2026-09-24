@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Dashboard operasi dan distribusi laporan SCADATR">
+  <title>SCADATR / Operations Monitor</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Lewati ke konten</a>
+  <div class="app-shell">
+    <nav class="side-nav" aria-label="Navigasi utama">
+      <a class="side-brand" href="#main-content" aria-label="SCADATR, beranda">
+        <span class="side-brand-name">SCADATR</span>
+        <span class="side-brand-note">MONITORING / KONTROL / LAPORAN</span>
+      </a>
+      <div class="side-nav-links">
+        <a href="#main-content" class="is-current"><span aria-hidden="true">▦</span>Beranda</a>
+        <a href="#telemetry-heading"><span aria-hidden="true">⊞</span>RTU</a>
+        <a href="#daily-report-heading"><span aria-hidden="true">▤</span>Laporan</a>
+        <a href="#schedules-heading"><span aria-hidden="true">◷</span>Jadwal laporan</a>
+        <a href="#recipients-heading"><span aria-hidden="true">◎</span>Penerima</a>
+        <a href="#server-heading"><span aria-hidden="true">▰</span>Server</a>
+        <a href="#settings-heading"><span aria-hidden="true">⚙</span>Pengaturan</a>
+      </div>
+      <div class="side-nav-footer">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span>SCADATR v1.2.0</span>
+        <small id="sidebar-refresh">Menunggu sinkronisasi</small>
+      </div>
+    </nav>
+
+    <header class="topbar">
+      <div class="brand">
+        <div>
+          <p class="eyebrow">PUSAT KENDALI</p>
+          <h1>Monitoring operasi</h1>
+          <p class="sync-note" id="last-refresh">Menunggu sinkronisasi pertama</p>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <div class="status-cluster" aria-label="Status koneksi">
+          <span class="status-chip" id="badge-health" role="status" aria-live="polite">
+            <span class="status-dot" aria-hidden="true"></span>API: memuat
+          </span>
+          <span class="status-chip" id="badge-wa" role="status" aria-live="polite">
+            <span class="status-dot" aria-hidden="true"></span>WA: memuat
+          </span>
+        </div>
+        <button class="btn btn-primary" id="btn-refresh-head" type="button">
+          <span class="btn-symbol" aria-hidden="true">↻</span>
+          <span>Muat ulang</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="dashboard" id="main-content">
+      <section class="surface telemetry-surface" aria-labelledby="telemetry-heading">
+        <div class="surface-heading telemetry-main-heading">
+          <div>
+            <p class="eyebrow">Pemantauan langsung</p>
+            <h2 id="telemetry-heading">Status RTU (Live)</h2>
+          </div>
+          <span class="surface-note">Status dari laporan collector terbaru</span>
+        </div>
+        <div class="telemetry-grid">
+          <article class="telemetry-block telemetry-good">
+            <div class="telemetry-heading">
+              <span class="signal-line" aria-hidden="true"></span>
+              <div>
+                <h3>Online</h3>
+                <p>Unit merespons dari broker</p>
+              </div>
+              <strong class="telemetry-count" id="n-active">0</strong>
+            </div>
+            <ul class="data-list" id="list-active"></ul>
+          </article>
+          <article class="telemetry-block telemetry-warning">
+            <div class="telemetry-heading">
+              <span class="signal-line" aria-hidden="true"></span>
+              <div>
+                <h3>Tanpa data</h3>
+                <p>Unit belum mengirim data</p>
+              </div>
+              <strong class="telemetry-count" id="n-nodata">0</strong>
+            </div>
+            <ul class="data-list" id="list-nodata"></ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="workspace-grid" aria-label="Laporan dan status layanan">
+        <div class="main-column">
+          <section class="surface report-surface" aria-labelledby="daily-report-heading">
+            <div class="surface-heading">
+              <div>
+                <p class="eyebrow">Laporan otomatis</p>
+                <h2 id="daily-report-heading">Laporan harian</h2>
+              </div>
+              <div class="heading-actions">
+                <span class="state-label" id="report-state" role="status" aria-live="polite">Memuat</span>
+                <div class="report-progress" id="report-progress-wrap" hidden>
+                  <progress id="report-progress" max="100" value="0" aria-label="Progres pembuatan laporan"></progress>
+                  <span id="report-progress-text"></span>
+                </div>
+                <button class="btn btn-secondary btn-compact" id="btn-refresh-report" type="button">
+                  <span class="btn-symbol" aria-hidden="true">↻</span>
+                  <span>Buat laporan</span>
+                </button>
+                <button class="btn btn-secondary btn-compact" id="btn-reload-report" type="button">
+                  <span class="btn-symbol" aria-hidden="true">↻</span>
+                  <span>Muat ulang</span>
+                </button>
+                <button class="btn btn-secondary btn-compact" id="btn-copy-report" type="button" disabled>
+                  <span class="btn-symbol" aria-hidden="true">⧉</span>
+        <span>Salin laporan</span>
+                </button>
+              </div>
+            </div>
+            <div class="report-meta">
+              <span class="meta-label">Generated</span>
+              <strong id="report-generated-at">Belum ada laporan</strong>
+              <span class="meta-separator" aria-hidden="true">/</span>
+              <span class="meta-label">Source</span>
+              <span>SCADATR collector</span>
+            </div>
+            <pre class="report-content" id="daily-report" aria-live="polite">Laporan terbaru akan tampil setelah sinkronisasi.</pre>
+          </section>
+
+          <section class="surface history-surface" aria-labelledby="history-heading">
+            <div class="surface-heading">
+              <div>
+                <p class="eyebrow">Arsip</p>
+                <h2 id="history-heading">Riwayat laporan</h2>
+              </div>
+              <span class="surface-note">10 laporan terakhir</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Waktu</th>
+                    <th scope="col">Preview</th>
+                    <th scope="col" class="table-action-heading">Detail</th>
+                  </tr>
+                </thead>
+                <tbody id="tabel-riwayat"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <aside class="side-column" aria-label="Status layanan">
+          <section class="surface schedule-surface" aria-labelledby="schedules-heading">
+            <div class="surface-heading">
+              <div>
+                <p class="eyebrow">Otomasi</p>
+                <h2 id="schedules-heading">Jadwal laporan</h2>
+              </div>
+              <span class="surface-note">Waktu server</span>
+            </div>
+            <ul class="managed-list" id="list-jadwal"></ul>
+          </section>
+
+          <section class="surface status-surface" aria-labelledby="server-heading">
+            <div class="surface-heading">
+              <div>
+                <p class="eyebrow">Infrastruktur</p>
+                <h2 id="server-heading">Server</h2>
+              </div>
+              <span class="surface-note">Latest sample</span>
+            </div>
+            <div class="metric-grid" id="grid-status">
+              <p class="empty-state">Memuat status server...</p>
+            </div>
+          </section>
+
+          <section class="surface connection-surface" aria-labelledby="session-heading">
+            <div class="surface-heading">
+              <div>
+                <p class="eyebrow">Akses portal</p>
+                <h2 id="session-heading">Sesi portal</h2>
+              </div>
+              <span class="status-chip status-chip-inline" id="badge-sesi" role="status" aria-live="polite">
+                <span class="status-dot" aria-hidden="true"></span>memuat
+              </span>
+            </div>
+            <p class="surface-description">Token baru akan diverifikasi pada siklus collector berikutnya.</p>
+            <label class="field-label" for="input-token">Session token</label>
+            <textarea id="input-token" rows="4" placeholder="Tempel token dari scripts/extract_token.py"></textarea>
+            <button class="btn btn-secondary btn-full" id="btn-perbarui-sesi" type="button">
+              <span class="btn-symbol" aria-hidden="true">↥</span>
+              <span>Perbarui sesi</span>
+            </button>
+          </section>
+
+          <section class="surface connection-surface" aria-labelledby="whatsapp-heading">
+            <div class="surface-heading">
+              <div>
+                <p class="eyebrow">Message delivery</p>
+                <h2 id="whatsapp-heading">WhatsApp gateway</h2>
+              </div>
+              <span class="status-chip status-chip-inline" id="badge-wa-koneksi" role="status" aria-live="polite">
+                <span class="status-dot" aria-hidden="true"></span>memuat
+              </span>
+            </div>
+            <div class="inline-actions">
+              <button class="btn btn-secondary btn-compact" id="btn-qr" type="button">
+                <span class="btn-symbol" aria-hidden="true">▦</span>
+                <span>Tampilkan QR</span>
+              </button>
+              <button class="btn btn-danger btn-compact" id="btn-logout-wa" type="button">
+                <span class="btn-symbol" aria-hidden="true">↪</span>
+                <span>Keluar</span>
+              </button>
+            </div>
+            <div class="qr-area" id="qr-area" aria-live="polite"></div>
+          </section>
+        </aside>
+      </section>
+
+      <section class="operations-section" id="settings-heading" aria-labelledby="operations-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Konfigurasi</p>
+            <h2 id="operations-heading">Pengaturan operasional</h2>
+          </div>
+          <span class="surface-note">Internal use</span>
+        </div>
+
+        <div class="operations-grid">
+          <section class="surface control-surface" aria-labelledby="api-key-heading">
+            <div class="surface-heading">
+              <div>
+                <p class="eyebrow">Access control</p>
+              <h3 id="api-key-heading">API key</h3>
+              </div>
+              <span class="control-index">01</span>
+            </div>
+            <p class="surface-description">Dipakai untuk request mutasi ke monitoring API.</p>
+            <div class="field-row">
+              <label class="sr-only" for="input-api-key">API key</label>
+              <input type="password" id="input-api-key" autocomplete="current-password">
+              <button class="btn btn-secondary btn-compact" id="btn-simpan-apikey" type="button">Simpan</button>
+            </div>
+          </section>
+
+          <section class="surface control-surface" aria-labelledby="recipients-heading">
+            <div class="surface-heading">
+              <div>
+                <p class="eyebrow">Distribusi laporan</p>
+                <h3 id="recipients-heading">Penerima</h3>
+              </div>
+              <span class="control-index">02</span>
+            </div>
+            <ul class="managed-list" id="list-penerima"></ul>
+            <div class="form-grid">
+              <label class="sr-only" for="input-nama">Nama penerima</label>
+              <input placeholder="Nama" id="input-nama">
+              <label class="sr-only" for="input-hp">Nomor HP</label>
+              <input placeholder="Nomor HP" id="input-hp" inputmode="tel">
+              <button class="btn btn-accent" id="btn-tambah-penerima" type="button">
+                <span class="btn-symbol" aria-hidden="true">+</span>
+                <span>Tambah</span>
+              </button>
+            </div>
+          </section>
+
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal hidden" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-judul">
+    <div class="modal-content">
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">Report archive</p>
+          <strong id="modal-judul">Detail laporan</strong>
+        </div>
+        <button class="icon-btn" id="btn-tutup-modal" type="button" aria-label="Tutup detail laporan">×</button>
+      </div>
+      <pre id="modal-pre"></pre>
+      <div class="modal-footer">
+        <span class="surface-note">Read-only report detail</span>
+        <button class="btn btn-secondary" id="btn-tutup-modal-footer" type="button">Tutup</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-box" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

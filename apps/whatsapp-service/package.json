@@ -1,0 +1,15 @@
+{
+  "name": "monitoring-whatsapp-service",
+  "version": "1.0.0",
+  "description": "WhatsApp gateway (Baileys) untuk stack monitoring SCADATR; diadaptasi dari smsgateway-grita",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.16",
+    "express": "^4.21.2",
+    "qrcode": "^1.5.4",
+    "pino": "^9.6.0"
+  }
+}
